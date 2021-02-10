@@ -42,4 +42,4 @@ target_include_directories(${PROJECT_NAME} PUBLIC "source") # to allow paths rel
 IF (WIN32)
     target_link_libraries(${PROJECT_NAME} PUBLIC ws2_32)
 ENDIF ()
-target_link_libraries(${PROJECT_NAME} PRIVATE zlib OpenSSL::SSL OpenSSL::Crypto cpr::cpr)
+target_link_libraries(${PROJECT_NAME} PRIVATE zlib OpenSSL::SSL OpenSSL::Crypto cpr::cpr base64)

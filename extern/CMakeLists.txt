@@ -32,3 +32,19 @@ if(NOT cpr_POPULATED)
 
   add_subdirectory(${cpr_SOURCE_DIR} ${cpr_BINARY_DIR})
 endif()
+
+FetchContent_Declare(
+        base64
+        GIT_REPOSITORY https://github.com/madebr/base64
+        GIT_TAG        574b9d1bfce170c99aa418ee45ce4f4fce953305
+)
+FetchContent_GetProperties(base64)
+if(NOT base64_POPULATED)
+  FetchContent_Populate(base64)
+
+  # Disable tests
+  set(BASE64_INSTALL_TARGET OFF)
+  set(BASE64_BUILD_TESTS OFF)
+
+  add_subdirectory(${base64_SOURCE_DIR} ${base64_BINARY_DIR})
+endif()
