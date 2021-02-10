@@ -62,17 +62,25 @@ private:
     moodycamel::ConcurrentQueue<IFrame>  inbound_queue;
     moodycamel::ConcurrentQueue<WSFrame> outbound_queue;
 
-    std::atomic_bool connected;
-    ClientSocket     socket;
+    ClientSocket socket;
 
     void listen_send();
 
 public:
+    WebSocket() = default;
     WebSocket(std::string uri, bool udp = false);
+
+    WebSocket(const WebSocket &) = delete;
+    WebSocket &operator=(const WebSocket &) = delete;
+
+    WebSocket(WebSocket &&) noexcept;
+    WebSocket &operator=(WebSocket &&) noexcept;
 
     void send_frame(Opcode opcode, u8 *data, size_t data_len);
     void close();
 
     std::vector<IFrame> dump_iqueue();
-    inline size_t       iqueue_sizeapprox();
+    size_t              iqueue_sizeapprox();
+
+    std::atomic_bool connected;
 };

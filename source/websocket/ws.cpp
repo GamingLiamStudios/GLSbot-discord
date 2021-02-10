@@ -8,9 +8,100 @@
 #include <unordered_map>
 #include <iostream>
 #include <thread>
+#include <cstring>
+
 #include "util/order.h"
 
 #include "openssl/sha.h"
+
+namespace
+{
+    // From
+    // https://www.programmingnotes.org/6504/c-how-to-make-map-unordered-map-keys-case-insensitive-using-c/
+    struct case_insensitive_unordered_map
+    {
+        struct comp
+        {
+            bool operator()(const std::string &lhs, const std::string &rhs) const
+            {
+                if (lhs.size() != rhs.size()) return false;
+                return ::strnicmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+            }
+        };
+        struct hash
+        {
+            unsigned operator()(std::string str) const
+            {
+                for (unsigned index = 0; index < str.size(); ++index)
+                {
+                    auto ch    = static_cast<unsigned char>(str[index]);
+                    str[index] = static_cast<unsigned char>(std::tolower(ch));
+                }
+                return std::hash<std::string> {}(str);
+            }
+        };
+    };
+
+    inline std::string Base64Encode(const std::string data)
+    {    // TODO: Swap out for a better, faster version
+        /**
+         * The MIT License (MIT)
+         * Copyright (c) 2016 tomykaira
+         *
+         * Permission is hereby granted, free of charge, to any person obtaining
+         * a copy of this software and associated documentation files (the
+         * "Software"), to deal in the Software without restriction, including
+         * without limitation the rights to use, copy, modify, merge, publish,
+         * distribute, sublicense, and/or sell copies of the Software, and to
+         * permit persons to whom the Software is furnished to do so, subject to
+         * the following conditions:
+         *
+         * The above copyright notice and this permission notice shall be
+         * included in all copies or substantial portions of the Software.
+         *
+         * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+         * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+         * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+         * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+         * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+         * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+         * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+         */
+        static constexpr std::string_view sEncodingTable =
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+        size_t      out_len = 4 * ((in_len + 2) / 3);
+        std::string ret(out_len, '\0');
+        size_t      i;
+        char *      p = const_cast<char *>(ret.c_str());
+
+        for (i = 0; i < in_len - 2; i += 3)
+        {
+            *p++ = sEncodingTable[(data[i] >> 2) & 0x3F];
+            *p++ = sEncodingTable[((data[i] & 0x3) << 4) | ((int) (data[i + 1] & 0xF0) >> 4)];
+            *p++ = sEncodingTable[((data[i + 1] & 0xF) << 2) | ((int) (data[i + 2] & 0xC0) >> 6)];
+            *p++ = sEncodingTable[data[i + 2] & 0x3F];
+        }
+        if (i < in_len)
+        {
+            *p++ = sEncodingTable[(data[i] >> 2) & 0x3F];
+            if (i == (in_len - 1))
+            {
+                *p++ = sEncodingTable[((data[i] & 0x3) << 4)];
+                *p++ = '=';
+            }
+            else
+            {
+                *p++ = sEncodingTable[((data[i] & 0x3) << 4) | ((int) (data[i + 1] & 0xF0) >> 4)];
+                *p++ = sEncodingTable[((data[i + 1] & 0xF) << 2)];
+            }
+            *p++ = '=';
+        }
+
+        return ret;
+    }
+
+}    // namespace
 
 void WebSocket::WSFrame::mask()
 {
@@ -260,71 +351,6 @@ WebSocket::WebSocket(std::string uri, bool udp)
 
         http_get.append("Upgrade: WebSocket\r\nConnection: Upgrade\r\n");
 
-        auto Base64Encode = [](const std::string data) {    // TODO: Unnessasary Lambda
-            /**
-             * The MIT License (MIT)
-             * Copyright (c) 2016 tomykaira
-             *
-             * Permission is hereby granted, free of charge, to any person obtaining
-             * a copy of this software and associated documentation files (the
-             * "Software"), to deal in the Software without restriction, including
-             * without limitation the rights to use, copy, modify, merge, publish,
-             * distribute, sublicense, and/or sell copies of the Software, and to
-             * permit persons to whom the Software is furnished to do so, subject to
-             * the following conditions:
-             *
-             * The above copyright notice and this permission notice shall be
-             * included in all copies or substantial portions of the Software.
-             *
-             * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-             * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-             * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-             * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-             * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-             * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-             * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-             */
-            static constexpr char sEncodingTable[] = {
-                'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
-                'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
-                'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
-                'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'
-            };
-
-            size_t      in_len  = data.size();
-            size_t      out_len = 4 * ((in_len + 2) / 3);
-            std::string ret(out_len, '\0');
-            size_t      i;
-            char *      p = const_cast<char *>(ret.c_str());
-
-            for (i = 0; i < in_len - 2; i += 3)
-            {
-                *p++ = sEncodingTable[(data[i] >> 2) & 0x3F];
-                *p++ = sEncodingTable[((data[i] & 0x3) << 4) | ((int) (data[i + 1] & 0xF0) >> 4)];
-                *p++ =
-                  sEncodingTable[((data[i + 1] & 0xF) << 2) | ((int) (data[i + 2] & 0xC0) >> 6)];
-                *p++ = sEncodingTable[data[i + 2] & 0x3F];
-            }
-            if (i < in_len)
-            {
-                *p++ = sEncodingTable[(data[i] >> 2) & 0x3F];
-                if (i == (in_len - 1))
-                {
-                    *p++ = sEncodingTable[((data[i] & 0x3) << 4)];
-                    *p++ = '=';
-                }
-                else
-                {
-                    *p++ =
-                      sEncodingTable[((data[i] & 0x3) << 4) | ((int) (data[i + 1] & 0xF0) >> 4)];
-                    *p++ = sEncodingTable[((data[i + 1] & 0xF) << 2)];
-                }
-                *p++ = '=';
-            }
-
-            return ret;
-        };
-
         auto rand = std::string(16, '0');
         for (auto &c : rand) c = ::rand();
         std::string base64 = Base64Encode(rand);
@@ -364,8 +390,13 @@ WebSocket::WebSocket(std::string uri, bool udp)
             return;
         }
 
-        std::unordered_map<std::string_view, std::string_view> headers;
-        size_t                                                 index = read.find('\n') + 1;
+        std::unordered_map<
+          std::string,
+          std::string_view,
+          case_insensitive_unordered_map::hash,
+          case_insensitive_unordered_map::comp>
+               headers;
+        size_t index = read.find('\n') + 1;
         while (true)
         {
             size_t nindex = read.find('\n', index);
@@ -378,32 +409,30 @@ WebSocket::WebSocket(std::string uri, bool udp)
             if (index > len) break;
         }
 
-        auto iequals = [](const std::string_view &a, const std::string_view &b) -> bool {
-            size_t sz = a.size();
-            if (b.size() != sz) return false;
-            for (size_t i = 0; i < sz; ++i)
-                if (tolower(a[i]) != tolower(b[i])) return false;
-            return true;
+        auto iequals = [](std::string_view &lhs, std::string_view &rhs) -> bool {
+            if (lhs.size() != rhs.size()) return false;
+            return ::strnicmp(lhs.data(), rhs.data(), lhs.size()) == 0;
         };
 
         std::string_view cmp = "WebSocket";
-        if (headers.find("Upgrade") == headers.end() || !iequals(headers.at("Upgrade"), cmp))
+        if (headers.find("Upgrade") != headers.end() && !iequals(headers.at("Upgrade"), cmp))
         {
-            std::cout << iequals(headers.at("Upgrade"), cmp) << "\n";
             std::cerr << "Upgrade invalid\n";
+            std::cerr << "Upgrade: " << headers.at("Upgrade") << "\n";
             close();
             return;
         }
 
         cmp = "Upgrade";
-        if (headers.find("Connection") == headers.end() || !iequals(headers.at("Connection"), cmp))
+        if (headers.find("Connection") != headers.end() && !iequals(headers.at("Connection"), cmp))
         {
             std::cerr << "Connection invalid\n";
+            std::cerr << headers.at("Connection") << "\n";
             close();
             return;
         }
 
-        if (headers.find("Sec-WebSocket-Accept") != headers.end())
+        if (headers.find("sec-websocket-accept") != headers.end())
         {
             std::string md(20, '0');
             base64 += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -439,7 +468,7 @@ WebSocket::WebSocket(std::string uri, bool udp)
     }
 
     connected.store(true);
-    std::thread(&WebSocket::listen_send, this).detach();
+    std::thread(&WebSocket::listen_send, this).detach();    // TODO: Single Threaded
     std::cout << "Successfully Connected to WebSocket\n";
 }
 
@@ -457,4 +486,31 @@ std::vector<WebSocket::IFrame> WebSocket::dump_iqueue()
     dump.resize(ret);
 
     return dump;
+}
+
+WebSocket::WebSocket(WebSocket &&other) noexcept
+{
+    if (other.socket.is_valid())
+    {
+        other.connected.store(false);
+        other.inbound_queue.~ConcurrentQueue();
+        other.outbound_queue.~ConcurrentQueue();
+        other.socket = ClientSocket();
+    }
+}
+
+WebSocket &WebSocket::operator=(WebSocket &&other) noexcept
+{
+    if (&other != this)
+    {
+        if (socket.is_valid()) socket.close();
+
+        socket         = std::move(other.socket);
+        inbound_queue  = std::move(other.inbound_queue);
+        outbound_queue = std::move(other.outbound_queue);
+        connected.store(other.connected.load());
+
+        other.connected.store(false);
+    }
+    return *this;
 }
