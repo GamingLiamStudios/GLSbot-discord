@@ -70,6 +70,7 @@ namespace
         static constexpr std::string_view sEncodingTable =
           "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+        size_t      in_len  = data.size();
         size_t      out_len = 4 * ((in_len + 2) / 3);
         std::string ret(out_len, '\0');
         size_t      i;
