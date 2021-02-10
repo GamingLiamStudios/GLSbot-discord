@@ -447,7 +447,7 @@ WebSocket::WebSocket(WebSocket &&other) noexcept
         other.connected.store(false);
         other.inbound_queue.~ConcurrentQueue();
         other.outbound_queue.~ConcurrentQueue();
-        other.socket = ClientSocket();
+        other.socket = ClientSocket::invalid();
     }
 }
 
