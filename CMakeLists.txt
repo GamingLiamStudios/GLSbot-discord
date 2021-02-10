@@ -24,6 +24,9 @@ set(SOURCE_FILES
     # WEBSOCKET
     source/websocket/socket.cpp # Semi-'Stolen' from another project I work on
     source/websocket/ws.cpp
+
+    # GLSBOT
+    source/GLSbot.cpp
 )
 IF (WIN32)
     add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${OPENSSL_INCLUDE_DIR}/openssl/applink.c)
