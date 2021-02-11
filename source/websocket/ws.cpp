@@ -12,8 +12,8 @@
 
 #include "util/order.h"
 
-#include "openssl/sha.h"
-#include "libbase64.h"
+#include <openssl/sha.h>
+#include <libbase64.h>
 
 namespace
 {
@@ -26,7 +26,7 @@ namespace
             bool operator()(const std::string &lhs, const std::string &rhs) const
             {
                 if (lhs.size() != rhs.size()) return false;
-                return ::strnicmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+                return ::strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
             }
         };
         struct hash
@@ -122,6 +122,7 @@ void WebSocket::send_frame(Opcode opcode, u8 *data, size_t data_len)
 
         // Should I move to using the same pointer with different offsets instead of using
         // lots of mini-mallocs?
+        // TODO
         frame.dynamic.payload_data = new u8[len];
         memcpy(frame.dynamic.payload_data, data + i, len);
 
@@ -363,7 +364,7 @@ WebSocket::WebSocket(std::string uri, bool udp)
 
         auto iequals = [](std::string_view &lhs, std::string_view &rhs) -> bool {
             if (lhs.size() != rhs.size()) return false;
-            return ::strnicmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+            return ::strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
         };
 
         std::string_view cmp = "WebSocket";
@@ -447,7 +448,7 @@ WebSocket::WebSocket(WebSocket &&other) noexcept
         other.connected.store(false);
         other.inbound_queue.~ConcurrentQueue();
         other.outbound_queue.~ConcurrentQueue();
-        other.socket = ClientSocket::invalid();
+        other.socket = ClientSocket();
     }
 }
 
