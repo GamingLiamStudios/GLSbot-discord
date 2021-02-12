@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <optional>
+#include <mutex>
 #include "util/types.h"
 
 #include <openssl/ssl.h>
@@ -51,6 +52,8 @@ protected:
     };
     bool    use_tls;
     TLS_CTX tls;
+
+    static std::mutex _mutex;
 };
 
 class ClientSocket final : public SecureSocketBase

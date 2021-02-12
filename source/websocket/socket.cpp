@@ -77,6 +77,8 @@
 
 #endif
 
+std::mutex SecureSocketBase::_mutex = {};
+
 namespace
 {
 #ifdef PLATFORM_WINDOWS
@@ -146,6 +148,7 @@ SecureSocketBase::~SecureSocketBase()
 
 SecureSocketBase::SecureSocketBase(SecureSocketBase &&other) noexcept : _handle(other._handle)
 {
+    std::lock_guard<std::mutex> lock(_mutex);
     other._handle = INVALID_SOCKET;
     other.use_tls = false;
 
@@ -158,6 +161,7 @@ SecureSocketBase &SecureSocketBase::operator=(SecureSocketBase &&other) noexcept
     if (&other != this)
     {
         if (is_valid()) close();
+        std::lock_guard<std::mutex> lock(_mutex);
 
         _handle = other._handle;
         use_tls = other.use_tls;
@@ -184,6 +188,7 @@ bool SecureSocketBase::is_valid() const noexcept
 
 void SecureSocketBase::close() noexcept
 {
+    std::lock_guard<std::mutex> lock(_mutex);
     if (use_tls)
     {
         SSL_shutdown(tls.ssl);
@@ -289,7 +294,8 @@ ClientSocket::ClientSocket() noexcept
 
 i32 ClientSocket::read_bytes(u8 *buf, i32 buf_len) const
 {
-    i32 result;
+    std::lock_guard<std::mutex> lock(_mutex);
+    i32                         result;
     if (buf_len <= 0) return 0;
 
     if (use_tls)
@@ -318,7 +324,8 @@ i32 ClientSocket::read_bytes(u8 *buf, i32 buf_len) const
 
 i32 ClientSocket::send_bytes(u8 const *buf, i32 buf_len) const noexcept
 {
-    i32 result;
+    std::lock_guard<std::mutex> lock(_mutex);
+    i32                         result;
     if (buf_len <= 0 || buf == nullptr) return 0;
 
     if (use_tls)
