@@ -59,12 +59,11 @@ private:
         u64 app_data_offset;
     };
 
-    moodycamel::ConcurrentQueue<IFrame>  inbound_queue;
-    moodycamel::ConcurrentQueue<WSFrame> outbound_queue;
+    moodycamel::ConcurrentQueue<IFrame> inbound_queue;
 
     ClientSocket socket;
 
-    void listen_send();
+    void listen();
 
 public:
     WebSocket() = default;

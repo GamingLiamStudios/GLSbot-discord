@@ -11,7 +11,7 @@ int main()
     char buffer[128];
     auto auth = std::ifstream("./auth.txt");    // Contains 'Token: {Bot-Token}'
     auth.getline(buffer, 128);
-    auto line = std::string_view(buffer, strlen(buffer) + 1);
+    auto line = std::string_view(buffer, strlen(buffer));
     if (line.substr(0, 7) != "Token: ") std::__throw_invalid_argument("Token File invalid!");
 
     auto bot = GLSbot(line.substr(7));

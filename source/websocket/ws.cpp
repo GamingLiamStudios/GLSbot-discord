@@ -9,6 +9,7 @@
 #include <iostream>
 #include <thread>
 #include <cstring>
+#include <queue>
 
 #include "util/order.h"
 
@@ -53,6 +54,25 @@ namespace
         return ret;
     }
 
+    inline void dump_buffer(unsigned n, const unsigned char *buf)
+    {
+        int on_this_line = 0;
+        while (n-- > 0)
+        {
+            fprintf(stderr, "%02X ", *buf++);
+            on_this_line += 1;
+            if (on_this_line == 16 || n == 0)
+            {
+                int i;
+                fputs(" ", stderr);
+                for (i = on_this_line; i < 16; i++) fputs(" ", stderr);
+                for (i = on_this_line; i > 0; i--) fputc(isprint(buf[-i]) ? buf[-i] : '.', stderr);
+                fputs("\n", stderr);
+                on_this_line = 0;
+            }
+        }
+    }
+
 }    // namespace
 
 void WebSocket::WSFrame::mask()
@@ -62,7 +82,9 @@ void WebSocket::WSFrame::mask()
         assert(
           ("ERROR: MSB in ext_payload_length is set.",
            this->dynamic.ext_payload_length & (1 << 63)));
-        for (size_t i = 0; i < this->header.payload_length + this->dynamic.ext_payload_length; i++)
+        size_t len = (this->header.payload_length <= 125) ? this->header.payload_length
+                                                          : this->dynamic.ext_payload_length;
+        for (size_t i = 0; i < len; i++)
             this->dynamic.payload_data[i] ^= ((u8 *) &this->dynamic.masking_key)[i & 0b11];
     }
 }
@@ -75,13 +97,13 @@ void WebSocket::send_frame(Opcode opcode, u8 *data, size_t data_len)
         return;
     }
 
-    std::vector<WSFrame> enqueue_buffer;
+    std::queue<WSFrame> enqueue_buffer;
 
     if (data_len == 0)
     {
         WSFrame frame;
         frame.header.fin              = true;
-        frame.header.mask             = true;
+        frame.header.mask             = false;
         frame.header.opcode           = opcode;
         frame.header.rsv              = 0;
         frame.dynamic.app_data_offset = 0;    // Since Application Data isn't being used
@@ -90,105 +112,154 @@ void WebSocket::send_frame(Opcode opcode, u8 *data, size_t data_len)
         frame.dynamic.payload_data  = nullptr;
 
         frame.dynamic.ext_payload_length = 0;
+        /*
         frame.dynamic.masking_key        = std::rand();
         frame.mask();
+        */
 
-        enqueue_buffer.push_back(frame);
-        outbound_queue.enqueue_bulk(enqueue_buffer.begin(), 1);
-        return;
+        enqueue_buffer.push(frame);
     }
-
-    enqueue_buffer.resize(std::ceil(data_len / 4096.));
-    size_t index = 0;
-
-    for (size_t i = 0; i < data_len; i += 4096)
+    else
     {
-        auto &frame                   = enqueue_buffer.at(index++);
-        frame.header.fin              = false;
-        frame.header.mask             = true;
-        frame.header.opcode           = Opcode::continuation_frame;
-        frame.header.rsv              = 0;
-        frame.dynamic.app_data_offset = 0;    // Since Application Data isn't being used
+        size_t index = 0;
 
-        size_t len = std::min(data_len - i, size_t(4096));
-        if (len > 0x7D)
+        WSFrame frame;
+        for (size_t i = 0; i < data_len; i += 4096)
         {
-            frame.header.payload_length =
-              (len > ((u64(1) << 32) - 1)) ? 127 : 126;    // (1 << 32) - 1 = 2^32 - 1
-            frame.dynamic.ext_payload_length = len - frame.header.payload_length;
+            frame                         = {};
+            frame.header.fin              = false;
+            frame.header.mask             = true;
+            frame.header.opcode           = Opcode::continuation_frame;
+            frame.header.rsv              = 0;
+            frame.dynamic.app_data_offset = 0;    // Since Application Data isn't being used
+
+            size_t len = std::min(data_len - i, size_t(4096));
+            if (len > 0x7D)
+            {
+                frame.header.payload_length      = (len > 0xFFFF) ? 127 : 126;
+                frame.dynamic.ext_payload_length = len;
+            }
+            else
+                frame.header.payload_length = len;
+
+            // Should I move to using the same pointer with different offsets instead of using
+            // lots of mini-mallocs?
+            // TODO
+            frame.dynamic.payload_data = new u8[len];
+            memcpy(frame.dynamic.payload_data, data + i, len);
+            // std::cout << frame.dynamic.payload_data;
+
+            frame.dynamic.masking_key = std::rand() << 16 | std::rand();
+            frame.mask();
+
+            enqueue_buffer.push(frame);
         }
-        else
-            frame.header.payload_length = len;
 
-        // Should I move to using the same pointer with different offsets instead of using
-        // lots of mini-mallocs?
-        // TODO
-        frame.dynamic.payload_data = new u8[len];
-        memcpy(frame.dynamic.payload_data, data + i, len);
-
-        frame.dynamic.masking_key = std::rand();
-        frame.mask();
+        enqueue_buffer.front().header.opcode = opcode;
+        enqueue_buffer.back().header.fin     = true;
     }
 
-    enqueue_buffer.front().header.opcode = opcode;
-    enqueue_buffer.back().header.fin     = true;
-
-    std::cout << "Frame Sent\n\tOpcode: " << std::to_string((u8) opcode) << "\n";
-    switch (opcode)
+    // Send frames
+    WSFrame out;
+    while (!enqueue_buffer.empty())
     {
-    case Opcode::text_frame:
-        std::cout << "\tPayload: \"" << std::string_view((char *) data, data_len) << "\"\n";
-        break;
+        out = enqueue_buffer.front();
+        enqueue_buffer.pop();
+
+        const size_t len = (out.header.payload_length <= 125) ? out.header.payload_length
+                                                              : out.dynamic.ext_payload_length;
+
+        u64 reversed_epl = out.dynamic.ext_payload_length;
+
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        std::reverse(
+          (u8 *) &reversed_epl,
+          (u8 *) &reversed_epl + ((out.header.payload_length == 127) ? 8 : 2));
+#elif defined(__BYTE_ORDER_RUNTIME__)
+        if (is_system_little_endian())
+            std::reverse(
+              (u8 *) &reversed_epl,
+              (u8 *) &reversed_epl + ((out.header.payload_length == 127) ? 8 : 2));
+#endif
+
+        // TODO: Don't allocate every frame, use global buffer
+        u8 *   send_buffer = new u8[14 + len];
+        size_t index       = 2;
+
+        memcpy(send_buffer, (u8 *) &out.header, 2);
+        if (out.dynamic.ext_payload_length > 0)
+        {
+            memcpy(
+              send_buffer + index,
+              (u8 *) &reversed_epl,
+              (out.header.payload_length == 127) ? 8 : 2);
+            index += (out.header.payload_length == 127) ? 8 : 2;
+        }
+        if (out.header.mask)
+        {
+            memcpy(send_buffer + index, (u8 *) &out.dynamic.masking_key, 4);
+            index += 4;
+        }
+        memcpy(send_buffer + index, out.dynamic.payload_data, len);
+        index += len;
+
+        socket.send_bytes(send_buffer, index);
+        // std::cout << "send bytes\n";
+        // dump_buffer(index, send_buffer);
+
+        delete[] send_buffer;
+        delete[] out.dynamic.payload_data;
     }
 
-    outbound_queue.enqueue_bulk(    // More efficent than multiple enqueues
-      std::make_move_iterator(enqueue_buffer.begin()),
-      enqueue_buffer.size());
-    enqueue_buffer.clear();
+    // if (data_len != 0) std::cout << "Frame Sent. Opcode: " << std::to_string((u8) opcode) <<
+    // "\n";
 }
 
-void WebSocket::listen_send()
+void WebSocket::listen()
 {
+    i32                  error = 1;
     std::vector<WSFrame> fragment_queue;
-    while (connected || outbound_queue.size_approx() != 0)
+    while (connected)
     {
-        while (socket.remaining() != 0)
+        while (socket.remaining() > 0)
         {
             WSFrame cur;
-            socket.read_bytes((u8 *) &cur.header, 2);
+            if (error = socket.read_bytes((u8 *) &cur.header, 2) < 0) break;
 
             cur.dynamic.ext_payload_length = 0;
             cur.dynamic.masking_key        = 0;
             switch (cur.header.payload_length)
             {
-            case 126: socket.read_bytes((u8 *) &cur.dynamic.ext_payload_length, 4); break;
-            case 127: socket.read_bytes((u8 *) &cur.dynamic.ext_payload_length, 8); break;
-            default: cur.dynamic.ext_payload_length = 0; break;
+            case 126: error = socket.read_bytes((u8 *) &cur.dynamic.ext_payload_length, 2); break;
+            case 127: error = socket.read_bytes((u8 *) &cur.dynamic.ext_payload_length, 8); break;
             }
-            if (cur.header.mask) socket.read_bytes((u8 *) &cur.dynamic.masking_key, 4);
+            if (error < 0) break;
+            if (cur.header.mask)
+                if (error = socket.read_bytes((u8 *) &cur.dynamic.masking_key, 4) < 0) break;
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             std::reverse(
               (u8 *) &cur.dynamic.ext_payload_length,
               (u8 *) &cur.dynamic.ext_payload_length +
-                ((cur.header.payload_length == 127) ? 8 : 4));
+                ((cur.header.payload_length == 127) ? 8 : 2));
 #elif defined(__BYTE_ORDER_RUNTIME__)
             if (is_system_little_endian())
                 std::reverse(
                   (u8 *) &cur.dynamic.ext_payload_length,
                   (u8 *) &cur.dynamic.ext_payload_length + 
-                    ((cur.header.payload_length == 127) ? 8 : 4)));
+                    ((cur.header.payload_length == 127) ? 8 : 2)));
 #endif
 
             assert(
               ("ERROR: MSB in ext_payload_length is set.",
                cur.dynamic.ext_payload_length & (1 << 63)));
 
-            size_t len               = cur.dynamic.ext_payload_length + cur.header.payload_length;
+            size_t len = (cur.header.payload_length <= 125) ? cur.header.payload_length
+                                                            : cur.dynamic.ext_payload_length;
             cur.dynamic.payload_data = new u8[len];
-            socket.read_bytes(cur.dynamic.payload_data, len);
+            if (error = socket.read_bytes(cur.dynamic.payload_data, len) < 0) break;
 
-            if (cur.header.mask) cur.mask();
+            cur.mask();
 
             if (!cur.header.fin || cur.header.opcode == Opcode::continuation_frame)
                 fragment_queue.push_back(std::move(cur));
@@ -199,12 +270,11 @@ void WebSocket::listen_send()
                 frame.opcode          = cur.header.opcode;
                 frame.rsv             = cur.header.rsv;
 
-                frame.payload_length = cur.header.payload_length + cur.dynamic.ext_payload_length;
+                frame.payload_length = len;
                 frame.payload_data   = cur.dynamic.payload_data;
 
-                inbound_queue.enqueue_bulk(
-                  std::make_move_iterator(&frame),
-                  1);    // Weird C++ issue
+                inbound_queue.enqueue_bulk(std::make_move_iterator(&frame),
+                                           1);    // Weird
             }
 
             if (fragment_queue.size() > 1 && fragment_queue.back().header.fin)
@@ -216,56 +286,31 @@ void WebSocket::listen_send()
                 frame.rsv             = fragment_queue.front().header.rsv;
 
                 for (auto &frag : fragment_queue)
-                    frame.payload_length +=
-                      frag.dynamic.ext_payload_length + frag.header.payload_length;
+                    frame.payload_length += (frag.header.payload_length <= 125)
+                      ? frag.header.payload_length
+                      : frag.dynamic.ext_payload_length;
                 frame.payload_data = new u8[frame.payload_length];
 
                 size_t index = 0;
                 for (auto &frag : fragment_queue)
                 {
-                    memcpy(
-                      frame.payload_data + index,
-                      frag.dynamic.payload_data,
-                      frag.dynamic.ext_payload_length + frag.header.payload_length);
-                    index += frag.dynamic.ext_payload_length + frag.header.payload_length;
+                    len = (frag.header.payload_length <= 125) ? frag.header.payload_length
+                                                              : frag.dynamic.ext_payload_length;
+                    memcpy(frame.payload_data + index, frag.dynamic.payload_data, len);
+                    index += len;
                 }
 
                 inbound_queue.enqueue_bulk(&frame, 1);
                 fragment_queue.clear();
             }
         }
-
-        // Dump outbound queue
-        WSFrame out;
-        while (outbound_queue.try_dequeue(out))
-        {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-            std::reverse(
-              (u8 *) &out.dynamic.ext_payload_length,
-              (u8 *) &out.dynamic.ext_payload_length +
-                ((out.header.payload_length == 127) ? 8 : 4));
-#elif defined(__BYTE_ORDER_RUNTIME__)
-            if (is_system_little_endian())
-                std::reverse(
-                  (u8 *) &out.dynamic.ext_payload_length,
-                  (u8 *) &out.dynamic.ext_payload_length +
-                    ((out.header.payload_length == 127) ? 8 : 4));
-#endif
-
-            socket.send_bytes((u8 *) &out.header, 2);
-            if (out.dynamic.ext_payload_length > 0)
-                socket.send_bytes(
-                  (u8 *) &out.dynamic.ext_payload_length,
-                  out.dynamic.ext_payload_length > (u64(1 << 31) - 1) ? 8 : 4);
-            if (out.header.mask) socket.send_bytes((u8 *) &out.dynamic.masking_key, 4);
-            socket.send_bytes(
-              out.dynamic.payload_data,
-              out.dynamic.ext_payload_length + out.header.payload_length);
-
-            delete[] out.dynamic.payload_data;
-        }
     }
     socket.close();
+    if (error < 0)
+    {
+        std::string err_str = "ERROR! " + std::to_string(error);
+        std::__throw_runtime_error(err_str.c_str());
+    }
 }
 
 void WebSocket::close()
@@ -389,7 +434,7 @@ WebSocket::WebSocket(std::string uri, bool udp)
         {
             std::string md(20, '0');
             base64 += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-            SHA1((unsigned char *) base64.data(), base64.size(), (unsigned char *) md.data());
+            ::SHA1((unsigned char *) base64.data(), base64.size(), (unsigned char *) md.data());
 
             if (headers["Sec-WebSocket-Accept"] != Base64Encode(md))
             {
@@ -421,7 +466,8 @@ WebSocket::WebSocket(std::string uri, bool udp)
     }
 
     connected.store(true);
-    std::thread(&WebSocket::listen_send, this).detach();    // TODO: Single Threaded
+    std::thread(&WebSocket::listen, this).detach();    // TODO: Single Threaded
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     std::cout << "Successfully Connected to WebSocket\n";
 }
 
@@ -447,7 +493,6 @@ WebSocket::WebSocket(WebSocket &&other) noexcept
     {
         other.connected.store(false);
         other.inbound_queue.~ConcurrentQueue();
-        other.outbound_queue.~ConcurrentQueue();
         other.socket = ClientSocket();
     }
 }
@@ -458,9 +503,8 @@ WebSocket &WebSocket::operator=(WebSocket &&other) noexcept
     {
         if (socket.is_valid()) socket.close();
 
-        socket         = std::move(other.socket);
-        inbound_queue  = std::move(other.inbound_queue);
-        outbound_queue = std::move(other.outbound_queue);
+        socket        = std::move(other.socket);
+        inbound_queue = std::move(other.inbound_queue);
         connected.store(other.connected.load());
 
         other.connected.store(false);

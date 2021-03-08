@@ -27,6 +27,9 @@ set(SOURCE_FILES
 
     # GLSBOT
     source/GLSbot.cpp
+
+    # DISCORDAPI
+    source/discord-api/gateway.cpp
 )
 IF (WIN32)
     add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${OPENSSL_INCLUDE_DIR}/openssl/applink.c)
