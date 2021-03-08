@@ -314,7 +314,7 @@ i32 ClientSocket::read_bytes(u8 *buf, i32 buf_len) const
             return SOCK_ERROR;
         }
         err = get_error();
-        std::cerr << "Error occurred while sending bytes to server: \n"
+        std::cerr << "Error occurred while reading bytes from server: \n"
                   << err << ": " << get_error_string(err);
         return SOCK_ERROR;
     }
