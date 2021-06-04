@@ -296,19 +296,19 @@ i32 ClientSocket::read_bytes(u8 *buf, i32 buf_len) const
 {
     std::lock_guard<std::mutex> lock(_mutex);
     i32                         result;
-    if (buf_len <= 0) return 0;
+    if (buf_len <= 0 || buf == nullptr) return 0;
 
     if (use_tls)
         result = SSL_read(tls.ssl, reinterpret_cast<char *>(buf), buf_len);
     else
         result = ::recv(_handle, reinterpret_cast<char *>(buf), buf_len, 0);
 
-    if (result < 0)
+    if (result <= 0)
     {
         i32 err;
         if (use_tls)
         {
-            SSL_get_error(tls.ssl, err);
+            err = SSL_get_error(tls.ssl, result);
             ERR_print_errors_fp(stderr);
             fprintf(stderr, "Error occurred while reading bytes from server: %d\n", err);
             return SOCK_ERROR;

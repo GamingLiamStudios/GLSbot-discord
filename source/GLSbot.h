@@ -2,10 +2,19 @@
 
 #include <string>
 
-#include "websocket/ws.h"
+#include "discord-api/gateway.h"
 
 class GLSbot
 {
 public:
-    GLSbot(std::string_view bot_token);
+    GLSbot() = default;
+
+    void start(std::string_view token);
+
+    void close();
+
+private:
+    std::string token;
+
+    discordAPI::Gateway gateway;
 };

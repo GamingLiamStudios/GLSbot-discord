@@ -17,6 +17,7 @@ if(NOT zlib_ng_POPULATED)
   add_subdirectory(${zlib_ng_SOURCE_DIR} ${zlib_ng_BINARY_DIR})
 endif()
 
+# TODO: Remove CPR, replace with just plain curl
 FetchContent_Declare(
         cpr
         GIT_REPOSITORY https://github.com/whoshuu/cpr
@@ -29,6 +30,7 @@ if(NOT cpr_POPULATED)
   # Disable tests
   set(BUILD_CPR_TESTS OFF)
   set(BUILD_CPR_TESTS_SSL OFF)
+  set(USE_SYSTEM_CURL ON)
 
   add_subdirectory(${cpr_SOURCE_DIR} ${cpr_BINARY_DIR})
 endif()

@@ -15,14 +15,11 @@ find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
 add_subdirectory(extern)
 
 set(SOURCE_FILES
-    # SIMDJSON
-    extern/simdjson/simdjson.cpp
-
     # MAIN
     source/main.cpp
 
     # WEBSOCKET
-    source/websocket/socket.cpp # Semi-'Stolen' from another project I work on
+    source/websocket/socket.cpp
     source/websocket/ws.cpp
 
     # GLSBOT
@@ -31,11 +28,8 @@ set(SOURCE_FILES
     # DISCORDAPI
     source/discord-api/gateway.cpp
 )
-IF (WIN32)
-    add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${OPENSSL_INCLUDE_DIR}/openssl/applink.c)
-ELSE ()
-    add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-ENDIF ()
+
+add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 

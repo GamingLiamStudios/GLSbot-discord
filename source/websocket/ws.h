@@ -37,7 +37,7 @@ private:
 
         struct
         {
-            u64 ext_payload_length;    // Can be 32 or 64 bits
+            u64 ext_payload_length;    // Can be 16 or 64 bits
             u32 masking_key;           // Can be null
 
             u8 *payload_data;       // Starts at 'Extension data'
@@ -54,9 +54,9 @@ private:
         u8     rsv : 3;
         bool   _ : 1;    // Align to byte
 
-        u64 payload_length;
-        u8 *payload_data;
-        u64 app_data_offset;
+        u64                   payload_length;
+        std::unique_ptr<u8[]> payload_data;
+        u64                   app_data_offset;
     };
 
     moodycamel::ConcurrentQueue<IFrame> inbound_queue;

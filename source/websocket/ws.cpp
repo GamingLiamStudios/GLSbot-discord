@@ -112,10 +112,8 @@ void WebSocket::send_frame(Opcode opcode, u8 *data, size_t data_len)
         frame.dynamic.payload_data  = nullptr;
 
         frame.dynamic.ext_payload_length = 0;
-        /*
-        frame.dynamic.masking_key        = std::rand();
+        frame.dynamic.masking_key        = std::rand() << 16 | std::rand();
         frame.mask();
-        */
 
         enqueue_buffer.push(frame);
     }
@@ -172,14 +170,9 @@ void WebSocket::send_frame(Opcode opcode, u8 *data, size_t data_len)
         u64 reversed_epl = out.dynamic.ext_payload_length;
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-        std::reverse(
-          (u8 *) &reversed_epl,
-          (u8 *) &reversed_epl + ((out.header.payload_length == 127) ? 8 : 2));
+        std::reverse((u8 *) &reversed_epl, (u8 *) &reversed_epl + 8);
 #elif defined(__BYTE_ORDER_RUNTIME__)
-        if (is_system_little_endian())
-            std::reverse(
-              (u8 *) &reversed_epl,
-              (u8 *) &reversed_epl + ((out.header.payload_length == 127) ? 8 : 2));
+        if (is_system_little_endian()) std::reverse((u8 *) &reversed_epl, (u8 *) &reversed_epl + 8);
 #endif
 
         // TODO: Don't allocate every frame, use global buffer
@@ -191,7 +184,7 @@ void WebSocket::send_frame(Opcode opcode, u8 *data, size_t data_len)
         {
             memcpy(
               send_buffer + index,
-              (u8 *) &reversed_epl,
+              (u8 *) &reversed_epl + ((out.header.payload_length == 127) ? 0 : 6),
               (out.header.payload_length == 127) ? 8 : 2);
             index += (out.header.payload_length == 127) ? 8 : 2;
         }
@@ -223,6 +216,7 @@ void WebSocket::listen()
     {
         while (socket.remaining() > 0)
         {
+            u8      tmp[8];
             WSFrame cur;
             if (error = socket.read_bytes((u8 *) &cur.header, 2) < 0) break;
 
@@ -230,34 +224,42 @@ void WebSocket::listen()
             cur.dynamic.masking_key        = 0;
             switch (cur.header.payload_length)
             {
-            case 126: error = socket.read_bytes((u8 *) &cur.dynamic.ext_payload_length, 2); break;
-            case 127: error = socket.read_bytes((u8 *) &cur.dynamic.ext_payload_length, 8); break;
+            case 126:
+            {
+                error                          = socket.read_bytes(tmp, 2);
+                cur.dynamic.ext_payload_length = (u16) tmp[0] << 8 | (u16) tmp[1];
+            }
+            break;
+            case 127:
+            {
+                error                          = socket.read_bytes(tmp, 8);
+                cur.dynamic.ext_payload_length = (u64) tmp[0] << 56 | (u64) tmp[1] << 48 |
+                  (u64) tmp[0] << 40 | (u64) tmp[1] << 32 | (u64) tmp[4] << 24 |
+                  (u64) tmp[5] << 16 | (u64) tmp[6] << 8 | (u64) tmp[7];
+            }
+            break;
             }
             if (error < 0) break;
             if (cur.header.mask)
                 if (error = socket.read_bytes((u8 *) &cur.dynamic.masking_key, 4) < 0) break;
 
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-            std::reverse(
-              (u8 *) &cur.dynamic.ext_payload_length,
-              (u8 *) &cur.dynamic.ext_payload_length +
-                ((cur.header.payload_length == 127) ? 8 : 2));
-#elif defined(__BYTE_ORDER_RUNTIME__)
-            if (is_system_little_endian())
-                std::reverse(
-                  (u8 *) &cur.dynamic.ext_payload_length,
-                  (u8 *) &cur.dynamic.ext_payload_length + 
-                    ((cur.header.payload_length == 127) ? 8 : 2)));
-#endif
-
             assert(
               ("ERROR: MSB in ext_payload_length is set.",
                cur.dynamic.ext_payload_length & (1 << 63)));
 
-            size_t len = (cur.header.payload_length <= 125) ? cur.header.payload_length
-                                                            : cur.dynamic.ext_payload_length;
+            u64 len = (cur.header.payload_length <= 125) ? cur.header.payload_length
+                                                         : cur.dynamic.ext_payload_length;
+
             cur.dynamic.payload_data = new u8[len];
-            if (error = socket.read_bytes(cur.dynamic.payload_data, len) < 0) break;
+            u64 temp_val             = 0;
+            do {
+                if ((len - temp_val) <= 0) break;
+                error = socket.read_bytes(cur.dynamic.payload_data + temp_val, len - temp_val);
+                if (error < 0) break;
+                temp_val += error;
+            } while (temp_val < len);
+            if (error < 0) break;
+            if (temp_val != len) std::__throw_runtime_error("Read bytes != packet len");
 
             cur.mask();
 
@@ -271,10 +273,12 @@ void WebSocket::listen()
                 frame.rsv             = cur.header.rsv;
 
                 frame.payload_length = len;
-                frame.payload_data   = cur.dynamic.payload_data;
+                frame.payload_data   = std::make_unique<u8[]>(len);
+                std::memcpy(frame.payload_data.get(), cur.dynamic.payload_data, len);
 
-                inbound_queue.enqueue_bulk(std::make_move_iterator(&frame),
-                                           1);    // Weird
+                delete[] cur.dynamic.payload_data;
+
+                inbound_queue.enqueue(std::move(frame));
             }
 
             if (fragment_queue.size() > 1 && fragment_queue.back().header.fin)
@@ -289,23 +293,24 @@ void WebSocket::listen()
                     frame.payload_length += (frag.header.payload_length <= 125)
                       ? frag.header.payload_length
                       : frag.dynamic.ext_payload_length;
-                frame.payload_data = new u8[frame.payload_length];
+                frame.payload_data = std::make_unique<u8[]>(frame.payload_length);
 
                 size_t index = 0;
                 for (auto &frag : fragment_queue)
                 {
                     len = (frag.header.payload_length <= 125) ? frag.header.payload_length
                                                               : frag.dynamic.ext_payload_length;
-                    memcpy(frame.payload_data + index, frag.dynamic.payload_data, len);
+                    memcpy(frame.payload_data.get() + index, frag.dynamic.payload_data, len);
                     index += len;
+
+                    delete[] frag.dynamic.payload_data;
                 }
 
-                inbound_queue.enqueue_bulk(&frame, 1);
+                inbound_queue.enqueue(std::move(frame));
                 fragment_queue.clear();
             }
         }
     }
-    socket.close();
     if (error < 0)
     {
         std::string err_str = "ERROR! " + std::to_string(error);
@@ -315,6 +320,7 @@ void WebSocket::listen()
 
 void WebSocket::close()
 {
+    send_frame(Opcode::connection_close, NULL, 0);
     connected.store(false);
 }
 
@@ -407,7 +413,8 @@ WebSocket::WebSocket(std::string uri, bool udp)
             if (index > len) break;
         }
 
-        auto iequals = [](std::string_view &lhs, std::string_view &rhs) -> bool {
+        auto iequals = [](std::string_view &lhs, std::string_view &rhs) -> bool
+        {
             if (lhs.size() != rhs.size()) return false;
             return ::strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
         };
@@ -508,6 +515,7 @@ WebSocket &WebSocket::operator=(WebSocket &&other) noexcept
         connected.store(other.connected.load());
 
         other.connected.store(false);
+        std::thread(&WebSocket::listen, this).detach();
     }
     return *this;
 }

@@ -4,19 +4,30 @@
 
 #include <string_view>
 #include <atomic>
+#include <queue>
 
 #include "util/types.h"
 #include "websocket/ws.h"
 
+#include <json/json.hpp>
+
 namespace discordAPI
 {
+    struct gateway_event
+    {
+        std::string    name;
+        nlohmann::json data;
+    };
+
     class Gateway
     {
     private:
         WebSocket        ws;
-        std::string_view bot_token;
-        std::atomic_bool resume;
+        bool             resume;
 
+        std::string_view bot_token;
+        std::string      session_id;
+        
         enum class Opcodes : u16
         {
             // Gateway Opcodes
@@ -30,42 +41,25 @@ namespace discordAPI
             RequestGuildMembers,
             InvalidSession,
             Hello,
-            HeartbeatACK,
-
-            // Gateway Close Event Codes
-            UnknownError = 4000,
-            UnknownOpcode,
-            DecodeError,
-            NotAuthenticated,
-            AuthenticatedFailed,
-            AlreadyAuthenticated,
-            InvalidSeq = 4007,
-            RateLimited,
-            SessionTimeout,
-            InvalidShard,
-            ShardingRequired,
-            InvalidAPIVersion,
-            InvalidIntent,
-            DisallowedIntent
+            HeartbeatACK
         };
-
-        std::string session_id;
-
-        struct
-        {
-            Snowflake   id;
-            std::string username;
-            char        discrim[4];
-        } user;
 
         std::atomic_uint64_t prev_seqnum;
         std::atomic_bool     ACK;
 
+        std::queue<gateway_event> next_events;
+
         void heartbeat(u64 interval);
+
+    public:
+        Gateway() = default;
 
         int connect(std::string_view bot_token);
 
-    public:
-        Gateway(std::string_view bot_token);
+        int           get_incoming();
+        gateway_event next_event();
+
+        bool connected();
+        void close();
     };
 }    // namespace discordAPI
