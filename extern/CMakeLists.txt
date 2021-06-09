@@ -1,21 +1,23 @@
 include(FetchContent)
 
-# Include zlib-ng
+# zlib-ng
+set(ZLIB_ENABLE_TESTS OFF)
+set(WITH_NATIVE_INSTRUCTIONS ON)
+
+# cpr
+set(BUILD_CPR_TESTS OFF)
+set(BUILD_CPR_TESTS_SSL OFF)
+set(USE_SYSTEM_CURL ON)
+
+# base64
+set(BASE64_INSTALL_TARGET OFF)
+set(BASE64_BUILD_TESTS OFF)
+
 FetchContent_Declare(
-        zlib_ng
+        zlib
         GIT_REPOSITORY https://github.com/zlib-ng/zlib-ng
-        GIT_TAG        v2.0.0-RC1
+        GIT_TAG        2.0.2
 )
-FetchContent_GetProperties(zlib_ng)
-if(NOT zlib_ng_POPULATED)
-  FetchContent_Populate(zlib_ng)
-
-  # Set custom variables, policies, etc.
-  set(ZLIB_ENABLE_TESTS OFF)
-  set(WITH_NATIVE_INSTRUCTIONS ON)
-
-  add_subdirectory(${zlib_ng_SOURCE_DIR} ${zlib_ng_BINARY_DIR})
-endif()
 
 # TODO: Remove CPR, replace with just plain curl
 FetchContent_Declare(
@@ -23,30 +25,17 @@ FetchContent_Declare(
         GIT_REPOSITORY https://github.com/whoshuu/cpr
         GIT_TAG        1.5.2
 )
-FetchContent_GetProperties(cpr)
-if(NOT cpr_POPULATED)
-  FetchContent_Populate(cpr)
-
-  # Disable tests
-  set(BUILD_CPR_TESTS OFF)
-  set(BUILD_CPR_TESTS_SSL OFF)
-  set(USE_SYSTEM_CURL ON)
-
-  add_subdirectory(${cpr_SOURCE_DIR} ${cpr_BINARY_DIR})
-endif()
 
 FetchContent_Declare(
         base64
         GIT_REPOSITORY https://github.com/madebr/base64
         GIT_TAG        574b9d1bfce170c99aa418ee45ce4f4fce953305
 )
-FetchContent_GetProperties(base64)
-if(NOT base64_POPULATED)
-  FetchContent_Populate(base64)
 
-  # Disable tests
-  set(BASE64_INSTALL_TARGET OFF)
-  set(BASE64_BUILD_TESTS OFF)
+FetchContent_Declare(
+        fmt
+        GIT_REPOSITORY https://github.com/fmtlib/fmt
+        GIT_TAG        7.0.3
+)
 
-  add_subdirectory(${base64_SOURCE_DIR} ${base64_BINARY_DIR})
-endif()
+FetchContent_MakeAvailable(fmt base64 cpr zlib)

@@ -48,7 +48,7 @@ void discordAPI::Gateway::close()
     std::string json_str = json.dump(-1);
 
     std::ofstream file;
-    file.open("./resume.json");
+    file.open("./gcache.json");
     file.write(json_str.data(), json_str.size());
     file.flush();
     file.close();
@@ -96,12 +96,12 @@ int discordAPI::Gateway::connect(std::string_view bot_token)
 
     u64 interval;
 
-    if (std::filesystem::exists("./resume.json"))
+    if (std::filesystem::exists("./gcache.json"))
     {
         resume = true;
 
         std::ifstream file;
-        file.open("./resume.json", std::ios::ate | std::ios::in);
+        file.open("./gcache.json", std::ios::ate | std::ios::in);
         auto size = file.tellg();
         file.seekg(0, std::ios::beg);
 
@@ -303,8 +303,11 @@ int discordAPI::Gateway::get_incoming()
     nlohmann::json json;
     int            incoming = 0;
 
+    if (!next_events.empty()) return next_events.size();
+
     while (ws.iqueue_sizeapprox() == 0 && ws.connected)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (!ws.connected) return 0;
     auto inbound = ws.dump_iqueue();
 
     for (auto &frame : inbound)
@@ -352,6 +355,7 @@ int discordAPI::Gateway::get_incoming()
             nlohmann::json event_data = json["d"];
             prev_seqnum               = json["s"].get<u64>();
             next_events.push({ event_name, event_data });
+            incoming++;
 
             if (event_name == "READY") session_id = event_data["session_id"].get<std::string>();
         }
@@ -380,10 +384,8 @@ int discordAPI::Gateway::get_incoming()
                 identify += bot_token;
                 identify +=
                   "\",\"intents\":23041,\"compress\":false,\"properties\":{\"$os\":"
-                  "\"windows\","
-                  "\"$browser\":\"GLSbot\",\"$device\":\"GLSbot\"},\"presence\":{"
-                  "\"status\":"
-                  "\"online\",\"afk\":false,\"activities\":[{\"name\":\"Your Screams\","
+                  "\"windows\",\"$browser\":\"GLSbot\",\"$device\":\"GLSbot\"},\"presence\":{"
+                  "\"status\":\"online\",\"afk\":false,\"activities\":[{\"name\":\"Your Screams\","
                   "\"type\":2}],\"since\":";
                 identify += std::to_string(std::time(0));
                 identify += "}}}";
@@ -405,8 +407,6 @@ int discordAPI::Gateway::get_incoming()
         }
         break;
         }
-
-        incoming++;
     }
     return incoming;
 }
@@ -457,7 +457,7 @@ void discordAPI::Gateway::heartbeat(u64 interval)
             std::string json_str = json.dump(-1);
 
             std::ofstream file;
-            file.open("./resume.json");
+            file.open("./gcache.json");
             file.write(json_str.data(), json_str.size());
             file.flush();
             file.close();

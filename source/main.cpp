@@ -2,10 +2,11 @@
 #include <fstream>
 #include <cstring>
 #include <signal.h>
+#include <filesystem>
 
 #include "GLSbot.h"
 
-#include "websocket/ws.h"
+#include <json/json.hpp>
 
 GLSbot bot;
 
@@ -18,14 +19,36 @@ int main()
 {
     ::srand((u32) time(NULL));
 
-    char buffer[128];
-    auto auth = std::ifstream("./auth.txt");    // Contains 'Token: {Bot-Token}'
-    auth.getline(buffer, 128);
-    auto line = std::string_view(buffer, strlen(buffer));
-    if (line.substr(0, 7) != "Token: ") std::__throw_invalid_argument("Token File invalid!");
+    std::string token;
+    std::string user;
+    {
+        std::string json;
+        if (!std::filesystem::exists("./config.json"))
+        {
+            std::cout << "config.json does not exist!\n";
+            return -1;
+        }
+
+        auto auth = std::ifstream("./config.json", std::ios::in | std::ios::ate);
+        json.resize(auth.tellg());
+        auth.seekg(0, std::ios::beg);
+        auth.read(json.data(), json.size());
+        auth.close();
+
+        auto parsed = nlohmann::json::parse(json);
+        if (parsed.find("token") == parsed.end())
+        {
+            std::cout << "Bot token non-existant!\n";
+            return -1;
+        }
+        token = parsed["token"].get<std::string>();
+
+        if (parsed.find("owner_user") != parsed.end())
+            user = parsed["owner_user"].get<std::string>();
+    }
 
     signal(SIGINT, sigint_callback);
-    bot.start(line.substr(7));
+    bot.start(token, user);
 
     return 0;
 }
