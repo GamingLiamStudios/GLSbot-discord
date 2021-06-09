@@ -96,7 +96,7 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
         for (int _ = 0; _ < incoming; _++)
         {
             auto [event_name, event_data] = gateway.next_event();
-            std::cout << event_name << "\n";
+            // std::cout << event_name << "\n";
             // std::cout << event_data.dump(-1) << "\n";
             if (event_name == "RESUMED")
             {
@@ -143,11 +143,14 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
                             break;
                         }
                 }
-                write_cache();    // Very inefficient
+                write_cache();    // Not very good
             }
             else if (event_name == "MESSAGE_CREATE" || event_name == "MESSAGE_UPDATE")
             {
-                std::string_view author  = event_data["author"]["username"].get<std::string_view>();
+                std::string author = fmt::format(
+                  "{}#{}",
+                  event_data["author"]["username"].get<std::string>(),
+                  event_data["author"]["discriminator"].get<std::string>());
                 std::string_view content = event_data["content"].get<std::string_view>();
 
                 if (content.empty()) continue;
@@ -179,7 +182,7 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
                     if (owner_id.empty())
                         post =
                           "{\"content\":\"This has been disabled. Please contact Server Owner "
-                          "through DMs instead\"}";
+                          "through your personal DMs instead\"}";
                     else if (words.size() == 1)
                         post =
                           "{\"content\":\"No problem to send. Please specify the problem after "
@@ -190,14 +193,10 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
 
                     if (!owner_id.empty() && words.size() > 1)
                     {
-                        post = "{\"content\":\"Bug report by ";
-                        post += author;
-                        post += ":\"}";
+                        post = "{\"content\":\"Bug report by " + author + ":\"}";
                         send_message(token, owner_dm, post);
 
-                        post = "{\"content\":\"";
-                        post += content.substr(8);
-                        post += "\"}";
+                        post = "{\"content\":\"" + content.substr(8) + "\"}";
                         send_message(token, owner_dm, post);
                     }
                 }
