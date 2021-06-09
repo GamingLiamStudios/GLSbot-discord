@@ -196,7 +196,9 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
                         post = "{\"content\":\"Bug report by " + author + ":\"}";
                         send_message(token, owner_dm, post);
 
-                        post = "{\"content\":\"" + content.substr(8) + "\"}";
+                        post = "{\"content\":\"";
+                        post += content.substr(8);
+                        post += "\"}";
                         send_message(token, owner_dm, post);
                     }
                 }
