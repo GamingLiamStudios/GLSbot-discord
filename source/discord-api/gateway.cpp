@@ -241,7 +241,7 @@ int discordAPI::Gateway::connect(std::string_view bot_token)
             break;
             case (u16) Opcodes::InvalidSession:
             {
-                if (json["d"].get<bool>())
+                if (json["d"].get<bool>())    // Unlikely
                 {
                     std::string resume = "{\"op\":6,\"d\":{\"token\":\"";
                     resume += bot_token;
@@ -356,50 +356,21 @@ int discordAPI::Gateway::get_incoming()
             prev_seqnum               = json["s"].get<u64>();
             next_events.push({ event_name, event_data });
             incoming++;
-
-            if (event_name == "READY") session_id = event_data["session_id"].get<std::string>();
         }
         break;
         case (u16) Opcodes::InvalidSession:
         {
-            if (json["d"].get<bool>())
-            {
-                std::string resume = "{\"op\":6,\"d\":{\"token\":\"";
-                resume += bot_token;
-                resume += "\",\"session_id\":\"";
-                resume += session_id;
-                resume += "\",\"seq\":";
-                if (prev_seqnum == (u64) -1)
-                    resume += "null";
-                else
-                    resume += std::to_string(prev_seqnum);
-                resume += "}}";
-
-                ws.send_frame(WebSocket::Opcode::text_frame, (u8 *) resume.data(), resume.size());
-            }
-            else
-            {
-                // TODO: OS detection
-                std::string identify = "{\"op\":2,\"d\":{\"token\":\"";
-                identify += bot_token;
-                identify +=
-                  "\",\"intents\":23041,\"compress\":false,\"properties\":{\"$os\":"
-                  "\"windows\",\"$browser\":\"GLSbot\",\"$device\":\"GLSbot\"},\"presence\":{"
-                  "\"status\":\"online\",\"afk\":false,\"activities\":[{\"name\":\"Your Screams\","
-                  "\"type\":2}],\"since\":";
-                identify += std::to_string(std::time(0));
-                identify += "}}}";
-
-                ws.send_frame(
-                  WebSocket::Opcode::text_frame,
-                  (u8 *) identify.data(),
-                  identify.size());
-
-                resume = true;
-            }
+            close();
+            connect(bot_token);
         }
         break;
-        case (u16) Opcodes::HeartbeatACK: ACK = true; break;
+        case (u8) Opcodes::HeartbeatACK: ACK = true; break;
+        case (u8) Opcodes::Reconnect:
+        {
+            close();
+            connect(bot_token);
+        }
+        break;
         default:
         {
             std::cout << "Unimplemented opcode in get_incoming: " << op << "\n";
@@ -430,23 +401,25 @@ void discordAPI::Gateway::heartbeat(u64 interval)
 
         if (!ACK)
         {
-            std::cerr << "ACK not recieved\n";
-            send = "{\"op\":4009,\"d\":null}";
-            ws.send_frame(WebSocket::Opcode::text_frame, (u8 *) send.data(), send.size());
+            std::cerr << "ACK not recieved. Reconnecting\n";
 
-            ws.close();
-            // connect(bot_token);
+            u8 send[2];
+            send[0] = 0x0F;
+            send[1] = 0xA9;
+            ws.send_frame(WebSocket::Opcode::connection_close, send, 2);
+
+            close();
+            connect(bot_token);
             return;
         }
+        ACK = false;
 
-        ACK  = false;
         send = "{\"op\":1,\"d\":";
         if (prev_seqnum == (u64) -1)
             send += "null";
         else
             send += std::to_string(prev_seqnum);
         send += "}";
-
         ws.send_frame(WebSocket::Opcode::text_frame, (u8 *) send.data(), send.size());
 
         auto last = std::chrono::system_clock::now();

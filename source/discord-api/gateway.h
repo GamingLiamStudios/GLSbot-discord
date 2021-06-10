@@ -1,10 +1,8 @@
 #pragma once
 
-#include "types.h"
-
 #include <string_view>
-#include <atomic>
 #include <queue>
+#include <atomic>
 
 #include "util/types.h"
 #include "websocket/ws.h"
@@ -22,13 +20,13 @@ namespace discordAPI
     class Gateway
     {
     private:
-        WebSocket        ws;
-        bool             resume;
+        WebSocket ws;
+        bool      resume;
 
         std::string_view bot_token;
         std::string      session_id;
-        
-        enum class Opcodes : u16
+
+        enum class Opcodes : u8
         {
             // Gateway Opcodes
             Dispatch = 0,
