@@ -11,6 +11,7 @@
 #include <fstream>
 
 #include <cpr/cpr.h>
+#include <fmt/format.h>
 // #include <zlib-ng.h>
 
 namespace
@@ -54,6 +55,17 @@ void discordAPI::Gateway::close()
     file.close();
 
     ws.close();
+
+    resume = false;
+    while (!next_events.empty()) next_events.pop();
+}
+
+void discordAPI::Gateway::disconnect(u16 op)
+{
+    std::string post = "{\"d\":null,\"op\":" + std::to_string(op) + "}";
+    ws.send_frame(WebSocket::Opcode::text_frame, (u8 *) post.data(), post.size());
+
+    close();
 }
 
 int discordAPI::Gateway::connect(std::string_view bot_token)
@@ -156,13 +168,6 @@ int discordAPI::Gateway::connect(std::string_view bot_token)
                 std::string    event_name = json["t"].get<std::string>();
                 nlohmann::json event_data = json["d"];
                 prev_seqnum               = json["s"].get<u64>();
-
-                if (event_name == "Reconnect")
-                {
-                    std::cout << "OK. So this hasn't been implemented yet. I'ma just make it crash "
-                                 "the bot.\n";
-                    return -1;
-                }
 
                 next_events.push({ event_name, event_data });
 
@@ -354,6 +359,14 @@ int discordAPI::Gateway::get_incoming()
             std::string    event_name = json["t"].get<std::string>();
             nlohmann::json event_data = json["d"];
             prev_seqnum               = json["s"].get<u64>();
+
+            if (event_name == "Reconnect")
+            {
+                close();
+                connect(bot_token);
+                break;
+            }
+
             next_events.push({ event_name, event_data });
             incoming++;
         }
@@ -389,6 +402,12 @@ discordAPI::gateway_event discordAPI::Gateway::next_event()
     return event;
 }
 
+void discordAPI::Gateway::send_event(SendEvent op, std::string_view json)
+{
+    std::string send = fmt::format("{{\"op\": {}, \"d\": {}}}", (u8) op, json);
+    ws.send_frame(WebSocket::Opcode::text_frame, (u8 *) send.data(), send.size());
+}
+
 void discordAPI::Gateway::heartbeat(u64 interval)
 {
     std::this_thread::sleep_for(
@@ -402,13 +421,7 @@ void discordAPI::Gateway::heartbeat(u64 interval)
         if (!ACK)
         {
             std::cerr << "ACK not recieved. Reconnecting\n";
-
-            u8 send[2];
-            send[0] = 0x0F;
-            send[1] = 0xA9;
-            ws.send_frame(WebSocket::Opcode::connection_close, send, 2);
-
-            close();
+            disconnect(4009);
             connect(bot_token);
             return;
         }

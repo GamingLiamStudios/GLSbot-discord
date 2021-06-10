@@ -17,6 +17,13 @@ namespace discordAPI
         nlohmann::json data;
     };
 
+    enum class SendEvent : u8
+    {
+        PresenceUpdate = 3,
+        VoiceStateUpdate,
+        RequestGuildMembers = 8
+    };
+
     class Gateway
     {
     private:
@@ -56,8 +63,10 @@ namespace discordAPI
 
         int           get_incoming();
         gateway_event next_event();
+        void          send_event(SendEvent op, std::string_view json);
 
         bool connected();
         void close();
+        void disconnect(u16 op = 1001);
     };
 }    // namespace discordAPI

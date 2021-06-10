@@ -55,7 +55,7 @@ namespace
         return nlohmann::json::parse(response.text)["id"].get<std::string>();
     }
     // https://stackoverflow.com/a/17708801/12133562
-    std::string url_encode(const std::string &value)
+    inline std::string url_encode(const std::string &value)
     {
         using namespace std;
         ostringstream escaped;
@@ -101,7 +101,12 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
             if (event_name == "RESUMED")
             {
                 if (!std::filesystem::exists("./cache.json"))
-                    std::cout << "Resume cache non-existant!\n";
+                {
+                    std::cout << "Resume cache non-existant! Unable to properly resume bot\n";
+                    gateway.disconnect();
+                    gateway.connect(token);
+                    break;
+                }
 
                 std::string json_file;
                 auto        file = std::ifstream("./cache.json", std::ios::in | std::ios::ate);
@@ -123,27 +128,31 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
 
                 if (owner_id.empty() & !owner_user.empty())
                 {
-                    auto response = cpr::Get(
-                      cpr::Url(fmt::format(
-                        "https://discord.com/api/guilds/{}/members/search?query={}",
+                    gateway.send_event(
+                      discordAPI::SendEvent::RequestGuildMembers,
+                      fmt::format(
+                        "{{\"guild_id\": \"{}\",\"query\": \"{}\",\"limit\":100}}",
                         id,
-                        url_encode(std::string(owner_user.data(), owner_user.size() - 5)))),
-                      cpr::Header { { "Authorization", fmt::format("Bot {}", token) } },
-                      cpr::VerifySsl(false));
-
-                    auto users =
-                      nlohmann::json::parse(response.text).get<std::vector<nlohmann::json>>();
-                    if (users.size() == 0) continue;
-                    for (auto &user : users)
-                        if (
-                          user["user"]["discriminator"].get<std::string_view>() ==
-                          owner_user.substr(owner_user.size() - 4, 4))
-                        {
-                            owner_id = user["user"]["id"].get<std::string>();
-                            break;
-                        }
+                        owner_user.substr(0, owner_user.size() - 5)));
                 }
-                write_cache();    // Not very good
+
+                write_cache();
+            }
+            else if (event_name == "GUILD_MEMBERS_CHUNK")
+            {
+                auto users = event_data["members"].get<std::vector<nlohmann::json>>();
+                if (users.size() == 0) continue;
+                for (auto &user : users)
+                {
+                    if (
+                      user["user"]["discriminator"].get<std::string_view>() ==
+                      owner_user.substr(owner_user.size() - 4, 4))
+                    {
+                        owner_id = user["user"]["id"].get<std::string>();
+                        write_cache();
+                    }
+                    // Can be used for other purposes
+                }
             }
             else if (event_name == "MESSAGE_CREATE" || event_name == "MESSAGE_UPDATE")
             {
@@ -176,13 +185,38 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
                     std::string post = "{\"content\":\"pong!\"}";
                     send_response(token, event_data, post);
                 }
+                if (words[0] == "shutdown" | words[0] == "die")
+                {
+                    std::string post;
+                    if (words[0] == "shutdown")
+                    {
+                        if (event_data["author"]["id"].get<std::string>() == owner_id)
+                            post = "{\"content\":\"Turning off the bot. Goodbye\"}";
+                        else
+                            post = "{\"content\":\"You do not have permission to do this\"}";
+                    }
+                    else
+                    {
+                        if (event_data["author"]["id"].get<std::string>() == owner_id)
+                            post = "{\"content\":\"ok.\"}";
+                        else
+                            post = "{\"content\":\"no.\"}";
+                    }
+                    send_response(token, event_data, post);
+
+                    if (event_data["author"]["id"].get<std::string>() == owner_id)
+                    {
+                        write_cache();
+                        gateway.disconnect();
+                    }
+                }
                 if (words[0] == "report")
                 {
                     std::string post;
                     if (owner_id.empty())
                         post =
-                          "{\"content\":\"This has been disabled. Please contact Server Owner "
-                          "through your personal DMs instead\"}";
+                          "{\"content\":\"This has been disabled. Please contact a Server "
+                          "Moderator through your DMs instead\"}";
                     else if (words.size() == 1)
                         post =
                           "{\"content\":\"No problem to send. Please specify the problem after "
@@ -193,7 +227,8 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
 
                     if (!owner_id.empty() && words.size() > 1)
                     {
-                        post = "{\"content\":\"Bug report by " + author + ":\"}";
+                        if (owner_dm.empty()) owner_dm = create_dm(token, owner_id);
+                        post = "{\"content\":\"Reported by " + author + ":\"}";
                         send_message(token, owner_dm, post);
 
                         post = "{\"content\":\"";
@@ -210,7 +245,6 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
 void GLSbot::close()
 {
     write_cache();
-
     gateway.close();
 }
 
