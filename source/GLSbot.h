@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "discord-api/gateway.h"
+#include "discord/gateway.h"
 
 class GLSbot
 {
@@ -15,7 +15,7 @@ public:
     void write_cache();
 
 private:
-    discordAPI::Gateway gateway;
+    discord::Gateway gateway;
 
     std::string              owner_id;
     std::vector<std::string> guilds;

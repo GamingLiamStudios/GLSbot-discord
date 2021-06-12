@@ -6,8 +6,6 @@
 #include <filesystem>
 #include <fstream>
 #include <cctype>
-#include <iomanip>
-#include <sstream>
 #include <string>
 
 #include <cpr/cpr.h>
@@ -54,33 +52,6 @@ namespace
 
         return nlohmann::json::parse(response.text)["id"].get<std::string>();
     }
-    // https://stackoverflow.com/a/17708801/12133562
-    inline std::string url_encode(const std::string &value)
-    {
-        using namespace std;
-        ostringstream escaped;
-        escaped.fill('0');
-        escaped << hex;
-
-        for (string::const_iterator i = value.begin(), n = value.end(); i != n; ++i)
-        {
-            string::value_type c = (*i);
-
-            // Keep alphanumeric and other accepted characters intact
-            if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
-            {
-                escaped << c;
-                continue;
-            }
-
-            // Any other characters are percent-encoded
-            escaped << uppercase;
-            escaped << '%' << setw(2) << int((unsigned char) c);
-            escaped << nouppercase;
-        }
-
-        return escaped.str();
-    }
 }    // namespace
 
 void GLSbot::start(std::string_view token, std::string_view owner_user)
@@ -98,7 +69,16 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
             auto [event_name, event_data] = gateway.next_event();
             // std::cout << event_name << "\n";
             // std::cout << event_data.dump(-1) << "\n";
-            if (event_name == "RESUMED")
+            if (event_name == "READY")
+            {
+                std::string presence =
+                  "{\"status\":\"online\",\"afk\":false,\"activities\":"
+                  "[{\"name\":\"Your Screams\",\"type\":2,\"created_at\":";
+                presence += std::to_string(std::time(0));
+                presence += "}],\"since\":null}";
+                gateway.send_event(discord::Gateway::PresenceUpdate, presence);
+            }
+            else if (event_name == "RESUMED")
             {
                 if (!std::filesystem::exists("./cache.json"))
                 {
@@ -120,6 +100,13 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
                 owner_id  = json["owner_id"].get<std::string>();
 
                 owner_dm = create_dm(token, owner_id);
+
+                std::string presence =
+                  "{\"status\":\"online\",\"afk\":false,\"activities\":"
+                  "[{\"name\":\"Your Screams\",\"type\":2,\"created_at\":";
+                presence += std::to_string(std::time(0));
+                presence += "}],\"since\":null}";
+                gateway.send_event(discord::Gateway::PresenceUpdate, presence);
             }
             else if (event_name == "GUILD_CREATE")
             {
@@ -129,9 +116,9 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
                 if (owner_id.empty() & !owner_user.empty())
                 {
                     gateway.send_event(
-                      discordAPI::SendEvent::RequestGuildMembers,
+                      discord::Gateway::RequestGuildMembers,
                       fmt::format(
-                        "{{\"guild_id\": \"{}\",\"query\": \"{}\",\"limit\":100}}",
+                        "{{\"guild_id\":\"{}\",\"query\":\"{}\",\"limit\":100}}",
                         id,
                         owner_user.substr(0, owner_user.size() - 5)));
                 }
@@ -154,7 +141,7 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
                     // Can be used for other purposes
                 }
             }
-            else if (event_name == "MESSAGE_CREATE" || event_name == "MESSAGE_UPDATE")
+            else if (event_name == "MESSAGE_CREATE")
             {
                 std::string author = fmt::format(
                   "{}#{}",
@@ -182,6 +169,7 @@ void GLSbot::start(std::string_view token, std::string_view owner_user)
 
                 if (words[0] == "ping")
                 {
+                    // TODO: Ping latency in ms
                     std::string post = "{\"content\":\"pong!\"}";
                     send_response(token, event_data, post);
                 }

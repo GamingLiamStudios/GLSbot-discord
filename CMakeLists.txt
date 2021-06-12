@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.18)
 project(GLSbot-discord)
 
 if(NOT MSVC)
@@ -26,7 +26,7 @@ set(SOURCE_FILES
     source/GLSbot.cpp
 
     # DISCORDAPI
-    source/discord-api/gateway.cpp
+    source/discord/gateway.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
@@ -37,6 +37,9 @@ target_include_directories(${PROJECT_NAME} PUBLIC "extern")
 target_include_directories(${PROJECT_NAME} PUBLIC "source") # to allow paths relative to project root
 
 IF (WIN32)
-    target_link_libraries(${PROJECT_NAME} PUBLIC ws2_32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE zlib OpenSSL::SSL OpenSSL::Crypto cpr::cpr fmt base64
+     ws2_32 OpenSSL::applink)
+ELSE ()
+    target_link_libraries(${PROJECT_NAME} PRIVATE zlib OpenSSL::SSL OpenSSL::Crypto cpr::cpr fmt base64)
 ENDIF ()
-target_link_libraries(${PROJECT_NAME} PRIVATE zlib OpenSSL::SSL OpenSSL::Crypto cpr::cpr fmt base64)
+

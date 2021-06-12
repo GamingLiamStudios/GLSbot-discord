@@ -1,14 +1,13 @@
 #include "gateway.h"
 #include "util/types.h"
 
-#include <iostream>
-#include <string_view>
-#include <thread>
 #include <chrono>
-#include <string>
-
 #include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <string>
+#include <string_view>
+#include <thread>
 
 #include <cpr/cpr.h>
 #include <fmt/format.h>
@@ -36,12 +35,12 @@ namespace
     }
 }    // namespace
 
-bool discordAPI::Gateway::connected()
+bool discord::Gateway::connected()
 {
     return ws.connected;
 }
 
-void discordAPI::Gateway::close()
+void discord::Gateway::close()
 {
     nlohmann::json json;
     json["session_id"]   = session_id;
@@ -60,7 +59,7 @@ void discordAPI::Gateway::close()
     while (!next_events.empty()) next_events.pop();
 }
 
-void discordAPI::Gateway::disconnect(u16 op)
+void discord::Gateway::disconnect(u16 op)
 {
     std::string post = "{\"d\":null,\"op\":" + std::to_string(op) + "}";
     ws.send_frame(WebSocket::Opcode::text_frame, (u8 *) post.data(), post.size());
@@ -68,7 +67,7 @@ void discordAPI::Gateway::disconnect(u16 op)
     close();
 }
 
-int discordAPI::Gateway::connect(std::string_view bot_token)
+int discord::Gateway::connect(std::string_view bot_token)
 {
     nlohmann::json json;
 
@@ -175,7 +174,7 @@ int discordAPI::Gateway::connect(std::string_view bot_token)
                 {
                     if (event_name == "READY")
                         session_id = event_data["session_id"].get<std::string>();
-                    std::thread(&discordAPI::Gateway::heartbeat, this, interval).detach();
+                    std::thread(&discord::Gateway::heartbeat, this, interval).detach();
                     gateway_success = true;
                 }
             }
@@ -209,13 +208,7 @@ int discordAPI::Gateway::connect(std::string_view bot_token)
                     identify += bot_token;
                     identify +=
                       "\",\"intents\":23041,\"compress\":false,\"properties\":{\"$os\":"
-                      "\"windows\","
-                      "\"$browser\":\"GLSbot\",\"$device\":\"GLSbot\"},\"presence\":{"
-                      "\"status\":"
-                      "\"online\",\"afk\":false,\"activities\":[{\"name\":\"Your Screams\","
-                      "\"type\":2}],\"since\":";
-                    identify += std::to_string(std::time(0));
-                    identify += "}}}";
+                      "\"windows\",\"$browser\":\"GLSbot\",\"$device\":\"GLSbot\"}}}";
 
                     ws.send_frame(
                       WebSocket::Opcode::text_frame,
@@ -271,13 +264,7 @@ int discordAPI::Gateway::connect(std::string_view bot_token)
                     identify += bot_token;
                     identify +=
                       "\",\"intents\":23041,\"compress\":false,\"properties\":{\"$os\":"
-                      "\"windows\","
-                      "\"$browser\":\"GLSbot\",\"$device\":\"GLSbot\"},\"presence\":{"
-                      "\"status\":"
-                      "\"online\",\"afk\":false,\"activities\":[{\"name\":\"Your Screams\","
-                      "\"type\":2}],\"since\":";
-                    identify += std::to_string(std::time(0));
-                    identify += "}}}";
+                      "\"windows\",\"$browser\":\"GLSbot\",\"$device\":\"GLSbot\"}}}";
 
                     ws.send_frame(
                       WebSocket::Opcode::text_frame,
@@ -303,7 +290,7 @@ int discordAPI::Gateway::connect(std::string_view bot_token)
     return -1;
 }
 
-int discordAPI::Gateway::get_incoming()
+int discord::Gateway::get_incoming()
 {
     nlohmann::json json;
     int            incoming = 0;
@@ -395,20 +382,20 @@ int discordAPI::Gateway::get_incoming()
     return incoming;
 }
 
-discordAPI::gateway_event discordAPI::Gateway::next_event()
+discord::Gateway::event discord::Gateway::next_event()
 {
     auto event = next_events.front();
     next_events.pop();
     return event;
 }
 
-void discordAPI::Gateway::send_event(SendEvent op, std::string_view json)
+void discord::Gateway::send_event(send_opcodes op, std::string_view json)
 {
     std::string send = fmt::format("{{\"op\": {}, \"d\": {}}}", (u8) op, json);
     ws.send_frame(WebSocket::Opcode::text_frame, (u8 *) send.data(), send.size());
 }
 
-void discordAPI::Gateway::heartbeat(u64 interval)
+void discord::Gateway::heartbeat(u64 interval)
 {
     std::this_thread::sleep_for(
       std::chrono::milliseconds(u64(interval * (::rand() * 1.0 / RAND_MAX))));
